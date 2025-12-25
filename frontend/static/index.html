@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Document QA Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f9fafb;
+            color: #1f2937;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .main-header {
+            text-align: center;
+            padding: 2rem 0;
+            border-bottom: 2px solid #e0e0e0;
+            margin-bottom: 2rem;
+        }
+
+        .main-header h1 {
+            font-size: 2.5rem;
+            color: #1f2937;
+            margin-bottom: 0.5rem;
+        }
+
+        .main-header p {
+            color: #6b7280;
+            font-size: 1.1rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .card h2 {
+            margin-bottom: 1rem;
+            color: #1f2937;
+        }
+
+        .upload-section {
+            background: #f9fafb;
+            padding: 2rem;
+            border-radius: 12px;
+            border: 2px dashed #d1d5db;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+
+        .file-input {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        .file-input-label {
+            display: block;
+            padding: 1rem;
+            background: #3b82f6;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .file-input-label:hover {
+            background: #2563eb;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 1rem;
+        }
+
+        .btn:hover:not(:disabled) {
+            background-color: #2563eb;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .btn:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 1rem;
+            resize: vertical;
+        }
+
+        .info {
+            background: #e0f2fe;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            color: #0369a1;
+        }
+
+        .success {
+            background: #d1fae5;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            color: #065f46;
+        }
+
+        .error {
+            background: #fee2e2;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            color: #991b1b;
+        }
+
+        .answer-box {
+            background: #f0f9ff;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border-left: 4px solid #3b82f6;
+            margin: 1rem 0;
+        }
+
+        .chunk-box {
+            background: #ffffff;
+            padding: 1rem;
+            border-radius: 6px;
+            border-left: 3px solid #60a5fa;
+            margin: 0.5rem 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 0.5rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .answers-section {
+            margin-top: 2rem;
+        }
+
+        .answer-item {
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .answer-question {
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 0.5rem;
+        }
+
+        .file-info {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #f9fafb;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="main-header">
+            <h1>📄 Smart Document QA Assistant</h1>
+            <p>Upload PDF, DOCX, or TXT documents and ask questions powered by RAG</p>
+        </div>
+
+        <div id="status-message"></div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>📤 Upload Document</h2>
+                <div class="upload-section">
+                    <div class="file-input-wrapper">
+                        <input type="file" id="file-input" class="file-input" accept=".pdf,.docx,.txt">
+                        <label for="file-input" class="file-input-label">
+                            Choose Document File
+                        </label>
+                    </div>
+                    <p id="file-name" style="margin-top: 1rem; color: #6b7280;"></p>
+                </div>
+                <button id="upload-btn" class="btn" disabled>Upload & Process</button>
+                <div id="upload-info" class="file-info hidden"></div>
+            </div>
+
+            <div class="card">
+                <h2>❓ Ask Questions</h2>
+                <div id="no-docs-message" class="info">
+                    📄 Please upload a document first to ask questions.
+                </div>
+                <textarea id="question-input" class="textarea" placeholder="What would you like to know about the uploaded documents?"></textarea>
+                <button id="ask-btn" class="btn" disabled>Get Answer</button>
+            </div>
+        </div>
+
+        <div id="answers-section" class="answers-section hidden">
+            <h2>💬 Answers</h2>
+            <div id="answers-container"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = '/api';
+        const HEALTH_URL = '/health';
+        
+        let uploadedDocuments = [];
+        let answers = [];
+
+        // Check backend health on load
+        async function checkHealth() {
+            try {
+                const response = await fetch(HEALTH_URL);
+                if (!response.ok) {
+                    showMessage('Backend server is not running. Please start the backend server.', 'error');
+                    return false;
+                }
+                return true;
+            } catch (error) {
+                showMessage('Backend server is not running. Please start the backend server.', 'error');
+                return false;
+            }
+        }
+
+        function showMessage(message, type = 'info') {
+            const statusDiv = document.getElementById('status-message');
+            statusDiv.className = type;
+            statusDiv.textContent = message;
+            statusDiv.classList.remove('hidden');
+            
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    statusDiv.classList.add('hidden');
+                }, 5000);
+            }
+        }
+
+        function updateUI() {
+            const fileInput = document.getElementById('file-input');
+            const uploadBtn = document.getElementById('upload-btn');
+            const questionInput = document.getElementById('question-input');
+            const askBtn = document.getElementById('ask-btn');
+            const noDocsMessage = document.getElementById('no-docs-message');
+            const fileName = document.getElementById('file-name');
+
+            // Update file name display
+            if (fileInput.files.length > 0) {
+                fileName.textContent = `Selected: ${fileInput.files[0].name}`;
+                uploadBtn.disabled = false;
+            } else {
+                fileName.textContent = '';
+                uploadBtn.disabled = true;
+            }
+
+            // Update question button
+            const hasDocs = uploadedDocuments.length > 0;
+            const hasQuestion = questionInput.value.trim().length > 0;
+            
+            noDocsMessage.classList.toggle('hidden', hasDocs);
+            askBtn.disabled = !hasDocs || !hasQuestion;
+        }
+
+        async function uploadDocument(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            showMessage('Processing document...', 'info');
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Upload failed');
+                }
+
+                const result = await response.json();
+                uploadedDocuments.push(result);
+                
+                const uploadInfo = document.getElementById('upload-info');
+                const processingTime = result.processing_time_seconds || 0;
+                const timeDisplay = processingTime < 60 
+                    ? `${processingTime.toFixed(2)} seconds` 
+                    : `${Math.floor(processingTime / 60)}m ${(processingTime % 60).toFixed(2)}s`;
+                
+                uploadInfo.innerHTML = `
+                    <strong>✅ Document uploaded successfully!</strong><br>
+                    <strong>Filename:</strong> ${result.filename}<br>
+                    <strong>Total Chunks:</strong> ${result.total_chunks}<br>
+                    <strong>Total Pages:</strong> ${result.total_pages}<br>
+                    <strong>Processing Time:</strong> ${timeDisplay}<br>
+                    <strong>Document ID:</strong> ${result.document_id}
+                `;
+                uploadInfo.classList.remove('hidden');
+                
+                showMessage('Document uploaded and processed successfully!', 'success');
+                updateUI();
+            } catch (error) {
+                showMessage(`Upload failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function askQuestion(question) {
+            showMessage('Generating answer...', 'info');
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/ask`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ question })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to get answer');
+                }
+
+                const result = await response.json();
+                answers.unshift({
+                    question,
+                    ...result
+                });
+
+                displayAnswers();
+                showMessage('Answer generated successfully!', 'success');
+            } catch (error) {
+                showMessage(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function displayAnswers() {
+            const answersSection = document.getElementById('answers-section');
+            const answersContainer = document.getElementById('answers-container');
+            
+            if (answers.length === 0) {
+                answersSection.classList.add('hidden');
+                return;
+            }
+
+            answersSection.classList.remove('hidden');
+            answersContainer.innerHTML = answers.map((answer, idx) => `
+                <div class="answer-item">
+                    <div class="answer-question">Q: ${answer.question}</div>
+                    <div class="answer-box">${answer.answer.replace(/\n/g, '<br>')}</div>
+                    ${answer.relevant_chunks && answer.relevant_chunks.length > 0 ? `
+                        <details style="margin-top: 1rem;">
+                            <summary style="cursor: pointer; color: #3b82f6; font-weight: 600;">View Sources (${answer.relevant_chunks.length})</summary>
+                            ${answer.relevant_chunks.map(chunk => {
+                                const pageInfo = chunk.chapter_number 
+                                    ? `Page ${chunk.page_number}, Chapter ${chunk.chapter_number}`
+                                    : `Page ${chunk.page_number}`;
+                                return `
+                                <div class="chunk-box">
+                                    <strong>${pageInfo}</strong> (Similarity: ${(chunk.similarity_score * 100).toFixed(1)}%)<br>
+                                    ${chunk.text}
+                                </div>
+                            `;
+                            }).join('')}
+                        </details>
+                    ` : ''}
+                    ${answer.response_time_ms ? `<div style="margin-top: 0.5rem; font-size: 0.9rem; color: #6b7280;">Response time: ${answer.response_time_ms.toFixed(0)}ms</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        // Event listeners
+        document.getElementById('file-input').addEventListener('change', updateUI);
+        document.getElementById('question-input').addEventListener('input', updateUI);
+
+        document.getElementById('upload-btn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('file-input');
+            if (fileInput.files.length > 0) {
+                await uploadDocument(fileInput.files[0]);
+                fileInput.value = ''; // Reset file input
+                updateUI();
+            }
+        });
+
+        document.getElementById('ask-btn').addEventListener('click', async () => {
+            const questionInput = document.getElementById('question-input');
+            const question = questionInput.value.trim();
+            if (question && uploadedDocuments.length > 0) {
+                await askQuestion(question);
+                questionInput.value = ''; // Clear question
+                updateUI();
+            }
+        });
+
+        // Allow Enter key to submit question
+        document.getElementById('question-input').addEventListener('keypress', async (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                const questionInput = document.getElementById('question-input');
+                const question = questionInput.value.trim();
+                if (question && uploadedDocuments.length > 0) {
+                    await askQuestion(question);
+                    questionInput.value = '';
+                    updateUI();
+                }
+            }
+        });
+
+        // Initialize
+        checkHealth().then(healthy => {
+            if (healthy) {
+                updateUI();
+            }
+        });
+    </script>
+</body>
+</html>
+

@@ -5,12 +5,13 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    container_name: smart-doc-qa-backend
     ports:
       - "8000:8000"
     environment:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - DEEPSEEK_API_URL=${DEEPSEEK_API_URL:-https://api.deepseek.com/v1/chat/completions}
-      - CHROMA_DB_PATH=/app/chroma_db
+      - QDRANT_DB_PATH=/app/qdrant_db
       - API_HOST=0.0.0.0
       - API_PORT=8000
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -19,22 +20,42 @@ services:
       - CHUNK_OVERLAP=50
       - EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
     volumes:
-      - ./chroma_db:/app/chroma_db
-      - ./uploads:/app/uploads
+      - ./backend/qdrant_db:/app/qdrant_db
+      - ./backend/uploads:/app/uploads
+      - ./backend/models:/app/models
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
+      start_period: 40s
       retries: 3
+    networks:
+      - smart-doc-qa-network
 
   frontend:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: smart-doc-qa-frontend
     ports:
-      - "${FRONTEND_PORT:-80}:80"
-    volumes:
-      - ./frontend:/usr/share/nginx/html:ro
+      - "${FRONTEND_PORT:-8501}:8501"
+    environment:
+      - BACKEND_URL=http://backend:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - smart-doc-qa-network
+
+networks:
+  smart-doc-qa-network:
+    driver: bridge
 

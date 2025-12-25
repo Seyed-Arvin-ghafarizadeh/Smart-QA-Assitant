@@ -13,8 +13,10 @@ st.set_page_config(
 )
 
 # API Configuration
-API_BASE_URL = "http://localhost:8000/api"
-HEALTH_URL = "http://localhost:8000/health"
+import os
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+API_BASE_URL = f"{BACKEND_URL}/api"
+HEALTH_URL = f"{BACKEND_URL}/health"
 
 # Custom CSS for minimal, professional design
 st.markdown("""
@@ -115,7 +117,8 @@ def upload_document(file) -> Optional[dict]:
     """Upload a PDF document to the backend."""
     try:
         files = {"file": (file.name, file.read(), "application/pdf")}
-        response = requests.post(f"{API_BASE_URL}/upload", files=files, timeout=60)
+        # Increased timeout to 300 seconds (5 minutes) for large documents
+        response = requests.post(f"{API_BASE_URL}/upload", files=files, timeout=300)
         
         if response.status_code == 200:
             return response.json()
@@ -154,7 +157,7 @@ def ask_question(question: str) -> Optional[dict]:
 st.markdown("""
     <div class="main-header">
         <h1>📄 Smart Document QA Assistant</h1>
-        <p>Upload PDF documents and ask questions powered by RAG</p>
+        <p>Upload PDF, DOCX, or TXT documents and ask questions powered by RAG</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -168,6 +171,21 @@ with st.sidebar:
     st.header("Settings")
     st.info("Backend: Connected ✅")
     
+    # OCR status indicator
+    st.markdown("---")
+    st.subheader("OCR Status")
+    try:
+        # Try to get OCR status from backend (if endpoint exists)
+        health_response = requests.get(HEALTH_URL, timeout=2)
+        if health_response.status_code == 200:
+            st.success("OCR: Available ✅")
+            st.caption("EasyOCR is ready for scanned PDFs")
+        else:
+            st.warning("OCR: Status unknown")
+    except:
+        st.info("OCR: Check backend connection")
+    
+    st.markdown("---")
     if st.button("Clear History"):
         st.session_state.uploaded_documents = []
         st.session_state.answers = []
@@ -180,9 +198,9 @@ with col1:
     st.header("📤 Upload Document")
     
     uploaded_file = st.file_uploader(
-        "Choose a PDF file",
-        type=["pdf"],
-        help="Upload a PDF document to analyze"
+        "Choose a document file",
+        type=["pdf", "docx", "txt"],
+        help="Upload a PDF, DOCX, or TXT document to analyze"
     )
     
     if uploaded_file is not None:
@@ -192,12 +210,25 @@ with col1:
                 
                 if result:
                     st.success(f"✅ Document uploaded successfully!")
-                    st.json({
+                    
+                    # Display upload information
+                    upload_info = {
                         "Filename": result.get("filename"),
                         "Total Chunks": result.get("total_chunks"),
                         "Total Pages": result.get("total_pages"),
                         "Document ID": result.get("document_id")
-                    })
+                    }
+                    
+                    # Add OCR information if available
+                    if result.get("ocr_used"):
+                        upload_info["OCR Processing"] = "Yes"
+                        upload_info["OCR Pages"] = result.get("ocr_pages_count", 0)
+                    
+                    st.json(upload_info)
+                    
+                    # Show OCR status if applicable
+                    if result.get("ocr_used"):
+                        st.info("📸 OCR was used to process scanned/image-based pages in this document.")
                     
                     # Store in session state
                     st.session_state.uploaded_documents.append(result)
@@ -205,16 +236,28 @@ with col1:
 with col2:
     st.header("❓ Ask Questions")
     
+    # Check if documents are uploaded
+    has_documents = len(st.session_state.uploaded_documents) > 0
+    
+    if not has_documents:
+        st.info("📄 Please upload a document first to ask questions.")
+    
     question = st.text_area(
         "Enter your question",
         height=100,
         placeholder="What would you like to know about the uploaded documents?",
-        help="Ask questions about any uploaded documents"
+        help="Ask questions about any uploaded documents",
+        key="question_input"
     )
     
-    if st.button("Get Answer", type="primary", disabled=not question.strip()):
+    # Enable button if question is entered AND documents are uploaded
+    button_disabled = not question.strip() or not has_documents
+    
+    if st.button("Get Answer", type="primary", disabled=button_disabled):
         if not question.strip():
             st.warning("Please enter a question")
+        elif not has_documents:
+            st.warning("Please upload a document first")
         else:
             with st.spinner("Generating answer..."):
                 result = ask_question(question.strip())
@@ -222,7 +265,7 @@ with col2:
                 if result:
                     # Store answer in session state
                     answer_data = {
-                        "question": question,
+                        "question": question.strip(),
                         "answer": result.get("answer"),
                         "confidence": result.get("confidence"),
                         "response_time_ms": result.get("response_time_ms"),
@@ -243,41 +286,47 @@ if st.session_state.answers:
             # Display answer
             st.markdown(f"<div class='answer-box'>{answer_data['answer']}</div>", unsafe_allow_html=True)
             
-            # Display metrics
-            col_meta1, col_meta2, col_meta3 = st.columns(3)
-            
-            with col_meta1:
-                if answer_data.get("confidence") is not None:
-                    confidence_pct = answer_data["confidence"] * 100
-                    st.metric("Confidence", f"{confidence_pct:.1f}%")
-            
-            with col_meta2:
-                if answer_data.get("response_time_ms"):
-                    st.metric("Response Time", f"{answer_data['response_time_ms']:.0f}ms")
-            
-            with col_meta3:
-                if answer_data.get("token_usage"):
-                    tokens = answer_data["token_usage"]
-                    total = tokens.get("prompt_tokens", 0) + tokens.get("completion_tokens", 0)
-                    st.metric("Total Tokens", total)
-            
-            # Display relevant chunks
-            if answer_data.get("relevant_chunks"):
-                st.subheader("📚 Relevant Sources")
+            # Display page numbers and source information
+            if answer_data.get('relevant_chunks'):
+                st.markdown("---")
+                st.subheader("📄 Source Pages")
                 
-                for chunk_idx, chunk in enumerate(answer_data["relevant_chunks"], 1):
-                    with st.container():
-                        col_chunk1, col_chunk2 = st.columns([3, 1])
-                        
-                        with col_chunk1:
-                            st.markdown(f"**Source {chunk_idx}** - Page {chunk.get('page_number', 'N/A')}")
-                        
-                        with col_chunk2:
-                            similarity = chunk.get("similarity_score", 0) * 100
-                            st.markdown(f"**{similarity:.1f}% match**")
-                        
-                        st.markdown(f"<div class='chunk-box'>{chunk.get('text', '')}</div>", unsafe_allow_html=True)
-                        st.markdown("---")
+                # Extract unique page numbers from relevant chunks
+                page_numbers = []
+                for chunk in answer_data['relevant_chunks']:
+                    page_num = chunk.get('page_number', 0)
+                    if page_num > 0 and page_num not in page_numbers:
+                        page_numbers.append(page_num)
+                
+                # Sort page numbers
+                page_numbers.sort()
+                
+                if page_numbers:
+                    # Display page numbers in a nice format
+                    if len(page_numbers) == 1:
+                        page_info = f"**Page {page_numbers[0]}**"
+                    elif len(page_numbers) <= 5:
+                        page_info = f"**Pages:** {', '.join(map(str, page_numbers))}"
+                    else:
+                        page_info = f"**Pages:** {', '.join(map(str, page_numbers[:5]))} and {len(page_numbers) - 5} more"
+                    
+                    st.markdown(f"<div style='background: #e0f2fe; padding: 1rem; border-radius: 8px; margin-top: 1rem;'>{page_info}</div>", unsafe_allow_html=True)
+                    
+                    # Show detailed chunk information in expandable sections
+                    with st.expander("View Source Chunks", expanded=False):
+                        for chunk_idx, chunk in enumerate(answer_data['relevant_chunks'], 1):
+                            page_num = chunk.get('page_number', 0)
+                            chapter_num = chunk.get('chapter_number')
+                            similarity = chunk.get('similarity_score', 0)
+                            
+                            chunk_header = f"**Chunk {chunk_idx}** - Page {page_num}"
+                            if chapter_num:
+                                chunk_header += f", Chapter {chapter_num}"
+                            chunk_header += f" (Similarity: {similarity:.2%})"
+                            
+                            st.markdown(chunk_header)
+                            st.markdown(f"<div class='chunk-box'>{chunk.get('text', '')[:500]}...</div>", unsafe_allow_html=True)
+                            st.markdown("---")
 
 # Footer
 st.divider()

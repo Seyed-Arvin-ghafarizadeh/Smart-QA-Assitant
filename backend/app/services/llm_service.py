@@ -90,18 +90,21 @@ class LLMService:
 
         context = "\n".join(context_parts)
 
-        prompt = f"""You are a helpful assistant that answers questions based on the provided document context. Use only the information from the context to answer the question. If the answer cannot be found in the context, say so clearly.
+        prompt = f"""You are a document Q&A assistant. You MUST answer questions ONLY using information from the provided document context. 
 
-IMPORTANT: Your answer must be exactly 3 paragraphs. Each paragraph should be concise and informative.
-
-When citing information, reference the page number (e.g., "According to page X..." or "[Page X]").
+CRITICAL RULES:
+1. You MUST NOT use any knowledge outside of the provided document context
+2. You MUST NOT make up information or use general knowledge
+3. If the answer cannot be found in the provided context, you MUST respond with: "I'm sorry, but I cannot answer this question based on the uploaded document. Please ask a question related to the content in the document."
+4. Your answer must be exactly 3 paragraphs. Each paragraph should be concise and informative.
+5. Do NOT include page numbers in your answer. The page numbers are already displayed separately in the source references.
 
 Context from document:
 {context}
 
 Question: {question}
 
-Answer (exactly 3 paragraphs):"""
+Answer (exactly 3 paragraphs, or the "cannot answer" message if information is not in the context):"""
 
         return prompt
 
@@ -127,7 +130,10 @@ Answer (exactly 3 paragraphs):"""
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that provides accurate answers based on document context."},
+                    {
+                        "role": "system",
+                        "content": "You are a document Q&A assistant. You MUST answer questions ONLY using information from the provided document context. You MUST NOT use any external knowledge or make up information. If the answer cannot be found in the document, you must say so clearly.",
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.7,
@@ -161,6 +167,87 @@ Answer (exactly 3 paragraphs):"""
         except Exception as e:
             logger.error(f"Error calling DeepSeek API: {str(e)}", exc_info=True)
             raise ValueError(f"Failed to generate answer: {str(e)}")
+
+    async def validate_answer_relevance(
+        self, question: str, answer: str, chunks: List[dict]
+    ) -> bool:
+        """
+        Validate that the generated answer is actually based on the retrieved chunks.
+        
+        Args:
+            question: User's question
+            answer: Generated answer
+            chunks: Retrieved chunks used for answer generation
+            
+        Returns:
+            True if answer is based on chunks, False otherwise
+        """
+        # Extract text from chunks
+        chunk_texts = [chunk.get("text", "") for chunk in chunks]
+        context = "\n\n".join(chunk_texts)
+        
+        # Check if answer contains the "cannot answer" message
+        cannot_answer_phrases = [
+            "cannot answer",
+            "cannot be found",
+            "not in the context",
+            "not available in",
+            "not provided",
+            "please ask a question related",
+        ]
+        
+        answer_lower = answer.lower()
+        if any(phrase in answer_lower for phrase in cannot_answer_phrases):
+            return False
+        
+        # Use LLM to validate if answer is based on context
+        validation_prompt = f"""You are a validator. Determine if the answer is based ONLY on the provided document context.
+
+Question: {question}
+
+Document Context:
+{context}
+
+Generated Answer:
+{answer}
+
+Instructions:
+- If the answer can be supported by information in the document context, respond with "YES"
+- If the answer uses information NOT in the document context or makes up information, respond with "NO"
+- If the answer says it cannot answer, respond with "NO"
+- Be strict: only "YES" if the answer is clearly derived from the context
+
+Respond with only "YES" or "NO":"""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a strict validator. Respond with only YES or NO.",
+                    },
+                    {"role": "user", "content": validation_prompt},
+                ],
+                temperature=0.1,  # Low temperature for consistent validation
+                max_tokens=10,
+            )
+
+            validation_result = response.choices[0].message.content.strip().upper()
+            is_valid = validation_result == "YES"
+            
+            logger.info(
+                f"Answer validation result: {validation_result}",
+                extra={"question": question[:100], "is_valid": is_valid},
+            )
+            
+            return is_valid
+
+        except Exception as e:
+            logger.warning(f"Error validating answer relevance: {str(e)}")
+            # If validation fails, be conservative and allow the answer
+            # But check for obvious "cannot answer" messages
+            return not any(phrase in answer_lower for phrase in cannot_answer_phrases)
 
     async def close(self):
         """Close HTTP client."""

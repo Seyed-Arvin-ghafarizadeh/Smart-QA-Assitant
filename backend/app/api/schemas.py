@@ -12,6 +12,7 @@ class UploadResponse(BaseModel):
     filename: str = Field(..., description="Original filename")
     total_chunks: int = Field(..., description="Number of text chunks created")
     total_pages: int = Field(..., description="Number of pages in the document")
+    processing_time_seconds: float = Field(..., description="Time taken to process the document in seconds")
     message: str = Field(default="Document uploaded and processed successfully")
 
 
@@ -54,7 +55,9 @@ class RelevantChunk(BaseModel):
 
     text: str = Field(..., description="Chunk text content")
     page_number: int = Field(..., description="Page number where chunk appears")
+    chapter_number: Optional[int] = Field(None, description="Chapter number where chunk appears")
     similarity_score: float = Field(..., ge=0.0, le=1.0, description="Similarity score (0-1)")
+    document_id: Optional[str] = Field(None, description="Document ID this chunk belongs to")
 
 
 class AskResponse(BaseModel):
@@ -65,6 +68,9 @@ class AskResponse(BaseModel):
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Confidence score")
     token_usage: Optional[dict] = Field(None, description="Token usage statistics")
     response_time_ms: Optional[float] = Field(None, description="Response time in milliseconds")
+    sentiment: Optional[str] = Field(None, description="Sentiment analysis result (positive, neutral, negative, inappropriate)")
+    is_relevant: Optional[bool] = Field(None, description="Whether the question is relevant to the document content")
+    similarity_metrics: Optional[dict] = Field(None, description="Detailed similarity metrics (max, avg, min similarity scores)")
 
 
 class MetricsResponse(BaseModel):

@@ -11,6 +11,7 @@ class Chunk:
     page_number: int
     chunk_index: int
     document_id: str
+    chapter_number: Optional[int] = None
 
 
 @dataclass
