@@ -24,50 +24,60 @@ wheels/
 venv/
 env/
 ENV/
-.venv
+.venv/
 
 # Environment variables
 .env
-.env.local
+.env.*
 
-# IDE
+# IDE files and editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# ChromaDB
-chroma_db/
-*.db
-*.sqlite
-
-# Uploads
-uploads/
-*.pdf
-!backend/tests/fixtures/*.pdf
-
-# Logs
-*.log
-logs/
-
-# OS
+# OS system files
 .DS_Store
 Thumbs.db
 
-# Docker
-.dockerignore
+# Logs
+logs/
+*.log
 
-# Testing
+# Test and coverage
 .pytest_cache/
+coverage/
 .coverage
 htmlcov/
 .tox/
 
-# Jupyter
+# Jupyter and notebook artifacts
 .ipynb_checkpoints/
 
-# ML Models (exclude model files but keep directory structure)
+# Database and cache
+*.db
+*.sqlite
+chroma_db/
+
+# Docker
+.dockerignore
+
+# Document uploads and generated files
+uploads/
+backend/uploads/
+*.pdf
+!backend/tests/fixtures/*.pdf
+
+# Ignore all models (keep directory only)
 backend/models/
 !backend/models/.gitkeep
+
+# Qdrant local vector database
+backend/qdrant_db/
+
+# Misc
+npm-debug.log
+yarn-debug.log
+yarn-error.log
 

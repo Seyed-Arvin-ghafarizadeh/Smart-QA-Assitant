@@ -1,28 +1,27 @@
-"""Centralized prompt templates for the document Q&A agent."""
+"""
+Centralized prompt templates for a robust, analytical document Q&A agent.
+Includes backward compatibility for existing agent code.
+"""
 from typing import List, Optional
 
 
+# ============================================================
+# PASS 1 — ANALYTICAL ANSWER PROMPT
+# ============================================================
+
 class AnswerPrompt:
-    """Prompt template for generating answers from document context."""
+    """
+    Generates an analytical, grounded answer from document context.
+    Allows synthesis and evaluation (critical for investment questions).
+    """
 
     SYSTEM_MESSAGE = (
-        "You are a document Q&A assistant. You MUST answer questions ONLY using information "
-        "from the provided document context. You MUST NOT use any external knowledge or make up "
-        "information. If the answer cannot be found in the document, you must say so clearly."
+        "You are an expert analytical assistant answering questions STRICTLY "
+        "based on the provided document context."
     )
 
     @staticmethod
     def build(question: str, chunks: List[dict]) -> str:
-        """
-        Build answer generation prompt.
-
-        Args:
-            question: User's question
-            chunks: List of retrieved chunks with metadata
-
-        Returns:
-            Formatted prompt string
-        """
         context_parts = []
         for i, chunk in enumerate(chunks, 1):
             page_num = chunk.get("page_number", "?")
@@ -31,111 +30,190 @@ class AnswerPrompt:
 
         context = "\n".join(context_parts)
 
-        prompt = f"""You are a document Q&A assistant. You MUST answer questions ONLY using information from the provided document context. 
+        return f"""
+You are an expert analytical assistant.
 
-CRITICAL RULES:
-1. You MUST NOT use any knowledge outside of the provided document context
-2. You MUST NOT make up information or use general knowledge
-3. If the answer cannot be found in the provided context, you MUST respond with: "I'm sorry, but I cannot answer this question based on the uploaded document. Please ask a question related to the content in the document."
-4. Your answer must be exactly 3 paragraphs. Each paragraph should be concise and informative.
-5. Do NOT include page numbers in your answer. The page numbers are already displayed separately in the source references.
+IMPORTANT RULES:
+- Use ONLY the provided document context.
+- DO NOT use external knowledge.
+- You MAY analyze, synthesize, and evaluate information in the document.
+- The document may not state answers explicitly.
+- For investment, safety, or risk questions:
+  - Provide a balanced assessment.
+  - Mention confidence scores, risks, assumptions, and uncertainties if present.
+  - Do NOT claim certainty or guarantees.
+- Do NOT say "the document does not contain information" if relevant signals exist.
+- Only refuse if the document is completely unrelated.
 
-Context from document:
+STYLE:
+- Analytical
+- Cautious
+- Grounded
+- Exactly 3 short paragraphs
+- No page numbers in the answer
+
+Document Context:
 {context}
 
-Question: {question}
+Question:
+{question}
 
-Answer (exactly 3 paragraphs, or the "cannot answer" message if information is not in the context):"""
+Answer:
+"""
 
-        return prompt
 
+# ============================================================
+# PASS 2 — STRICT HALLUCINATION CHECK
+# ============================================================
+
+class HallucinationCheckPrompt:
+    """
+    Strict grounding validator to detect hallucinations.
+    """
+
+    SYSTEM_MESSAGE = (
+        "You are a strict grounding validator. Detect unsupported claims."
+    )
+
+    @staticmethod
+    def build(question: str, answer: str, chunks: List[dict]) -> str:
+        context = "\n".join(chunk.get("text", "") for chunk in chunks)
+
+        return f"""
+You are a strict validator.
+
+Task:
+- Determine if the answer is fully supported by the document context.
+- Analytical inference is allowed ONLY if based on document signals.
+- NO external facts or assumptions allowed.
+
+Question:
+{question}
+
+Document Context:
+{context}
+
+Answer:
+{answer}
+
+Respond ONLY in JSON:
+{{
+  "grounded": true or false,
+  "reason": "short explanation"
+}}
+"""
+
+
+# ============================================================
+# PASS 3 — SAFE REWRITE / REFUSAL (ONLY IF NEEDED)
+# ============================================================
+
+class SafeRewritePrompt:
+    """
+    Conservative fallback if hallucination is detected.
+    """
+
+    SYSTEM_MESSAGE = (
+        "You are a safety-focused assistant correcting unsupported answers."
+    )
+
+    @staticmethod
+    def build(question: str, chunks: List[dict]) -> str:
+        context = "\n".join(chunk.get("text", "") for chunk in chunks)
+
+        return f"""
+Provide a SAFE, CONSERVATIVE answer.
+
+Rules:
+- Use ONLY the document context.
+- Avoid inference unless clearly supported.
+- If a cautious analytical answer is possible, provide it.
+- Otherwise, clearly refuse.
+
+Document Context:
+{context}
+
+Question:
+{question}
+
+Safe Answer:
+"""
+
+
+# ============================================================
+# ✅ BACKWARD-COMPATIBLE VALIDATION PROMPT (RESTORED)
+# ============================================================
 
 class ValidationPrompt:
-    """Prompt template for validating answer relevance."""
+    """
+    Backward-compatible strict validation prompt.
+    Used by existing agent/tools.py code.
+    """
 
     SYSTEM_MESSAGE = "You are a strict validator. Respond with only YES or NO."
 
     @staticmethod
     def build(question: str, answer: str, context: str) -> str:
-        """
-        Build validation prompt.
+        return f"""
+You are a validator.
 
-        Args:
-            question: User's question
-            answer: Generated answer
-            context: Document context used for answer generation
+Determine whether the ANSWER is supported by the DOCUMENT CONTEXT.
 
-        Returns:
-            Formatted validation prompt
-        """
-        prompt = f"""You are a validator. Determine if the answer is based ONLY on the provided document context.
+Rules:
+- Analytical synthesis IS allowed if derived from document signals.
+- Reject only if the answer introduces facts not supported by the document.
+- If the answer is clearly grounded, respond YES.
+- If the answer hallucinates or is unrelated, respond NO.
 
-Question: {question}
+Question:
+{question}
 
 Document Context:
 {context}
 
-Generated Answer:
+Answer:
 {answer}
 
-Instructions:
-- If the answer can be supported by information in the document context, respond with "YES"
-- If the answer uses information NOT in the document context or makes up information, respond with "NO"
-- If the answer says it cannot answer, respond with "NO"
-- Be strict: only "YES" if the answer is clearly derived from the context
+Respond with only "YES" or "NO":
+"""
 
-Respond with only "YES" or "NO":"""
 
-        return prompt
-
+# ============================================================
+# LENIENT QUESTION RELEVANCE PROMPT
+# ============================================================
 
 class RelevancePrompt:
-    """Prompt template for analyzing question relevance to documents."""
+    """
+    Lenient question relevance validator.
+    """
 
     SYSTEM_MESSAGE = (
-        "You are a lenient validator. When in doubt, allow the question. "
-        "Only reject clearly unrelated questions."
+        "You are a lenient validator. Reject only clearly unrelated questions."
     )
 
     @staticmethod
     def build(question: str, document_summary: Optional[str] = None) -> str:
-        """
-        Build relevance analysis prompt.
+        prompt = f"""
+You are a relevance validator.
 
-        Args:
-            question: User's question
-            document_summary: Optional summary of document content
-
-        Returns:
-            Formatted relevance prompt
-        """
-        prompt = f"""You are a helpful validator for document Q&A systems. Your job is to check if a question COULD POSSIBLY be related to the document content.
-
-Question: {question}
+Question:
+{question}
 """
 
         if document_summary:
-            prompt += f"\nDocument Content Preview:\n{document_summary}\n"
+            prompt += f"\nDocument Preview:\n{document_summary}\n"
 
         prompt += """
-IMPORTANT RULES - Be LENIENT:
-- Respond with RELEVANT: YES if the question COULD be about the document content
-- Respond with RELEVANT: YES if the question asks about topics, concepts, or information that might be in documents
-- Respond with RELEVANT: YES even if you're not 100% sure - give the benefit of the doubt
-- Only respond with RELEVANT: NO for questions that are CLEARLY unrelated like:
-  * "What's the weather today?"
-  * "Tell me a joke"
-  * "What time is it?"
-  * Questions about completely different topics with no possible connection to the document
-- If the question mentions anything that could be in a document, respond YES
-- When in doubt, respond YES
+Rules:
+- Be lenient.
+- Allow analytical and evaluative questions.
+- Reject ONLY clearly unrelated questions.
 
-Respond in this EXACT format (one per line):
-RELEVANT: YES or NO
-SENTIMENT: POSITIVE, NEUTRAL, NEGATIVE, or INAPPROPRIATE
-CONFIDENCE: 0.0 to 1.0 (as decimal)
-REASON: Brief explanation (one sentence)
+Respond in JSON:
+{
+  "is_relevant": true or false,
+  "confidence": number,
+  "reason": string
+}
 """
-
         return prompt
-

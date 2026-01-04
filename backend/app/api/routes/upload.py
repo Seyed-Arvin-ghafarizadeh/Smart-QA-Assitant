@@ -1,5 +1,4 @@
 """Upload endpoint for document processing."""
-from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
 
@@ -64,7 +63,7 @@ def get_upload_service(
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload_document(
-    file: Annotated[UploadFile, File(...)],
+    file: UploadFile = File(...),
     upload_service: DocumentUploadService = Depends(get_upload_service),
 ):
     """

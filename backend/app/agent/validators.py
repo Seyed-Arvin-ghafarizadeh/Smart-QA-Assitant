@@ -1,86 +1,119 @@
-"""Validation logic for questions, answers, and outputs."""
+"""
+Robust validation logic for questions, answers, and outputs.
+Backward-compatible with existing agent code.
+"""
 import re
 from typing import Dict, List
 
 from app.utils.logger import logger
 
 
-class QuestionValidator:
-    """Validates questions for appropriateness and sentiment."""
+# ============================================================
+# Question Validator
+# ============================================================
 
+class QuestionValidator:
     INAPPROPRIATE_KEYWORDS = [
-        r"\bhate\b",
-        r"\bkill\b",
-        r"\bviolence\b",
-        r"\billegal\b",
-        r"\bdrug\b",
-        r"\bweapon\b",
-        r"\battack\b",
-        r"\bharm\b",
-        r"\bthreat\b",
-        r"\babuse\b",
+        r"\b(kill|murder|assault|rape)\b",
+        r"\b(hate|racist|sexist)\b",
+        r"\b(weapon|bomb|gun|knife)\b",
+        r"\b(drug|cocaine|heroin)\b",
+        r"\b(attack|threat|harm|abuse)\b",
+    ]
+
+    ANALYTICAL_INTENT_KEYWORDS = [
+        "safe", "risk", "invest", "investment", "viable",
+        "worth", "opportunity", "confidence", "potential",
     ]
 
     def validate_sentiment(self, question: str) -> Dict:
-        """
-        Validate question sentiment and appropriateness.
-
-        Args:
-            question: User's question
-
-        Returns:
-            Dictionary with is_appropriate, sentiment, confidence, reason
-        """
         question_lower = question.lower()
+
         has_inappropriate = any(
-            re.search(keyword, question_lower) for keyword in self.INAPPROPRIATE_KEYWORDS
+            re.search(p, question_lower) for p in self.INAPPROPRIATE_KEYWORDS
         )
 
-        result = {
+        intent = (
+            "analytical"
+            if any(k in question_lower for k in self.ANALYTICAL_INTENT_KEYWORDS)
+            else "factual"
+        )
+
+        return {
             "is_appropriate": not has_inappropriate,
             "sentiment": "inappropriate" if has_inappropriate else "neutral",
-            "confidence": 0.9 if has_inappropriate else 0.8,
+            "confidence": 0.9 if has_inappropriate else 0.85,
+            "intent": intent,
             "reason": (
-                "Question contains potentially inappropriate content"
+                "Inappropriate content detected"
                 if has_inappropriate
-                else "Question appears appropriate"
+                else f"Appropriate question ({intent} intent)"
             ),
         }
 
-        if has_inappropriate:
-            logger.warning(
-                f"Question flagged as inappropriate: {question[:100]}",
-                extra={"sentiment": result["sentiment"]},
-            )
 
-        return result
-
+# ============================================================
+# Answer Validator
+# ============================================================
 
 class AnswerValidator:
-    """Validates answer quality and relevance."""
-
-    CANNOT_ANSWER_PHRASES = [
+    HARD_CANNOT_ANSWER_PHRASES = [
         "cannot answer",
         "cannot be found",
         "not in the context",
-        "not available in",
+        "not available",
         "not provided",
-        "please ask a question related",
+    ]
+
+    SOFT_ANALYTICAL_SIGNALS = [
+        "based on the document",
+        "analysis suggests",
+        "high confidence",
+        "regulatory risk",
+        "market volatility",
+        "investment defensible",
     ]
 
     def check_cannot_answer(self, answer: str) -> bool:
-        """
-        Check if answer indicates it cannot answer.
-
-        Args:
-            answer: Generated answer
-
-        Returns:
-            True if answer says it cannot answer
-        """
         answer_lower = answer.lower()
-        return any(phrase in answer_lower for phrase in self.CANNOT_ANSWER_PHRASES)
+        return any(p in answer_lower for p in self.HARD_CANNOT_ANSWER_PHRASES)
 
+    def validate_answer_grounding(
+        self,
+        question: str,
+        answer: str,
+        retrieved_chunks: List[Dict],
+        question_intent: str,
+    ) -> Dict:
+        if self.check_cannot_answer(answer):
+            return {"is_valid": False, "reason": "LLM explicitly refused"}
+
+        answer_lower = answer.lower()
+        doc_text = " ".join(c["text"].lower() for c in retrieved_chunks)
+
+        # ANALYTICAL QUESTIONS → allow inference
+        if question_intent == "analytical":
+            signal_match = any(s in answer_lower for s in self.SOFT_ANALYTICAL_SIGNALS)
+            doc_signal = any(
+                k in doc_text for k in ["confidence", "risk", "regulatory", "market"]
+            )
+
+            return {
+                "is_valid": signal_match or doc_signal,
+                "reason": "Analytical answer grounded in document signals",
+            }
+
+        # FACTUAL QUESTIONS → strict
+        strict_match = any(chunk["text"].lower() in answer_lower for chunk in retrieved_chunks)
+
+        return {
+            "is_valid": strict_match,
+            "reason": "Factual grounding check",
+        }
+
+    # ------------------------------------------------------------------
+    # ✅ BACKWARD-COMPATIBILITY FIX (THIS SOLVES YOUR ERROR)
+    # ------------------------------------------------------------------
     def validate_similarity_thresholds(
         self,
         similarity_scores: List[float],
@@ -89,103 +122,52 @@ class AnswerValidator:
         min_score: float,
         high_count_min: int,
     ) -> Dict:
-        """
-        Validate similarity scores against thresholds.
-
-        Args:
-            similarity_scores: List of similarity scores
-            max_threshold: Maximum similarity threshold
-            avg_threshold: Average similarity threshold
-            min_score: Minimum score for "high similarity"
-            high_count_min: Minimum number of chunks with high similarity
-
-        Returns:
-            Dictionary with passed, failed_checks, metrics
-        """
         if not similarity_scores:
-            return {
-                "passed": False,
-                "failed_checks": ["No similarity scores"],
-                "metrics": {},
-            }
+            return {"passed": False, "failed_checks": ["No scores"], "metrics": {}}
 
-        max_similarity = max(similarity_scores)
-        avg_similarity = sum(similarity_scores) / len(similarity_scores)
-        min_similarity = min(similarity_scores)
-        high_similarity_count = sum(1 for score in similarity_scores if score > min_score)
+        max_sim = max(similarity_scores)
+        avg_sim = sum(similarity_scores) / len(similarity_scores)
+        min_sim = min(similarity_scores)
+        high_count = sum(1 for s in similarity_scores if s >= min_score)
 
-        max_check = max_similarity >= max_threshold
-        avg_check = avg_similarity >= avg_threshold
-        count_check = high_similarity_count >= high_count_min
-
-        passed = max_check and avg_check and count_check
-
-        failed_checks = []
-        if not max_check:
-            failed_checks.append(
-                f"max similarity {max_similarity:.3f} < {max_threshold}"
-            )
-        if not avg_check:
-            failed_checks.append(
-                f"avg similarity {avg_similarity:.3f} < {avg_threshold}"
-            )
-        if not count_check:
-            failed_checks.append(
-                f"only {high_similarity_count} chunks with score > {min_score} (need >= {high_count_min})"
-            )
-
-        metrics = {
-            "max_similarity": max_similarity,
-            "avg_similarity": avg_similarity,
-            "min_similarity": min_similarity,
-            "high_similarity_count": high_similarity_count,
-        }
-
-        logger.info(
-            f"Similarity check: {'PASSED' if passed else 'FAILED'}",
-            extra={
-                "similarity_check_passed": passed,
-                "metrics": metrics,
-                "failed_checks": failed_checks,
-            },
+        passed = (
+            max_sim >= max_threshold
+            and avg_sim >= avg_threshold
+            and high_count >= high_count_min
         )
 
         return {
             "passed": passed,
-            "failed_checks": failed_checks,
-            "metrics": metrics,
+            "failed_checks": [] if passed else ["Similarity thresholds not met"],
+            "metrics": {
+                "max_similarity": max_sim,
+                "avg_similarity": avg_sim,
+                "min_similarity": min_sim,
+                "high_similarity_count": high_count,
+            },
         }
 
 
+# ============================================================
+# Output Validator
+# ============================================================
+
 class OutputValidator:
-    """Validates output format and structure."""
+    REQUIRED_FIELDS = ["answer", "relevant_chunks"]
 
     def validate_response(self, response: Dict) -> Dict:
-        """
-        Validate response structure.
-
-        Args:
-            response: Response dictionary
-
-        Returns:
-            Dictionary with is_valid, errors
-        """
         errors = []
-        required_fields = ["answer", "relevant_chunks"]
 
-        for field in required_fields:
-            if field not in response:
-                errors.append(f"Missing required field: {field}")
+        for f in self.REQUIRED_FIELDS:
+            if f not in response:
+                errors.append(f"Missing field: {f}")
 
         if "answer" in response and not isinstance(response["answer"], str):
-            errors.append("Answer must be a string")
+            errors.append("Answer must be string")
 
         if "relevant_chunks" in response and not isinstance(
             response["relevant_chunks"], list
         ):
-            errors.append("Relevant chunks must be a list")
+            errors.append("Relevant chunks must be list")
 
-        is_valid = len(errors) == 0
-
-        return {"is_valid": is_valid, "errors": errors}
-
+        return {"is_valid": len(errors) == 0, "errors": errors}
